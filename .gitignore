@@ -1,0 +1,18 @@
+
+data/ollama/*
+!data/ollama/.gitkeep
+
+data/searxng/*
+!data/searxng/.gitkeep
+
+# SearXNG cache directory.
+# Mounted to `/var/cache/searxng` when running `searxng` as UID/GID 1000:1000
+# (see `docker-compose.yml`) to keep host-side file ownership consistent and
+# to avoid permission issues when not running the container as root.
+data/searxng-cache/*
+!data/searxng-cache/.gitkeep
+
+data/open-webui/*
+!data/open-webui/.gitkeep
+
+.env

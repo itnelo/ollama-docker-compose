@@ -1,0 +1,17 @@
+# https://huggingface.co/TeichAI/Qwen3-30B-A3B-Thinking-2507-Claude-4.5-Sonnet-High-Reasoning-Distill-GGUF/resolve/main/Qwen3-30B-A3B-Thinking-2507-Claude-4.5-Sonnet-High-Reasoning-Distill-q4_k_m.gguf?download=true
+FROM data/ollama/blobs/sha256-19fc9531de59e0f265c7360b9b2f78782ca46e8da95e880ebe33d37ee3e1bfc0
+
+# Parameters for better defaults (Qwen3 recommendations) [citation:7]
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+PARAMETER top_k 20
+PARAMETER presence_penalty 1.5
+
+# Template for thinking mode
+TEMPLATE """{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{- end }}
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+"""

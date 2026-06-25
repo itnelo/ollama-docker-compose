@@ -1,0 +1,112 @@
+
+services:
+  ollama:
+    build:
+      context: ./docker/ollama
+      args:
+        OLLAMA_VERSION: ${OLLAMA_VERSION}
+    image: ollama-docker-compose:${OLLAMA_VERSION}
+    container_name: ai-ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT_LOCAL}:${OLLAMA_PORT_CONTAINER}"
+    # cpuset uses logical CPU indices on the Docker host (cgroup cpuset). Discover them on the machine
+    # where you run the stack, before `docker compose up`:
+    #   Linux:  nproc; getconf _NPROCESSORS_ONLN; lscpu; lscpu -e; grep -c ^processor /proc/cpuinfo
+    #   macOS:  sysctl -n hw.ncpu; sysctl -n hw.physicalcpu; sysctl hw | grep -E 'physicalcpu|logicalcpu'
+    # Docker Desktop (Mac/Win): limits apply inside the Linux VM — match indices to that VM’s CPUs, not only
+    # the bare-metal core layout shown in Activity Monitor.
+    cpus: "12.5"
+    cpuset: "0,1,2,3,4,5,6,7,8,9,10,11,12,13"
+    # Physical cores only
+    # cpus: "5.5"
+    # cpuset: "0,2,4,6,8,10"
+    environment:
+      - OLLAMA_MODELS=/root/.ollama
+      - OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH}
+    volumes:
+      - ${OLLAMA_HOME}:/root/.ollama:rw
+      # Modelfiles for `ollama create … -f` (short-name aliases to HF/GGUF sources).
+      - ./models:/root/.ollama-modelfiles:ro
+
+  searxng:
+    image: searxng/searxng:${SEARXNG_VERSION}
+    container_name: ai-searxng
+    restart: unless-stopped
+    # IMPORTANT (ownership / host-permissions workaround)
+    #
+    # The official `searxng/searxng` image (at least `2026.4.13-ee66b070a`) runs its
+    # entrypoint as root by default (Config.User is empty) and its entrypoint script
+    # (`/usr/local/searxng/entrypoint.sh`) contains logic that will recursively:
+    #
+    #   chown -R searxng:searxng /etc/searxng  and  /var/cache/searxng
+    #
+    # whenever those paths are not owned by `searxng:searxng` and `FORCE_OWNERSHIP`
+    # is not set to false.
+    #
+    # Because we mount `./data/searxng` to `/etc/searxng`, this recursive chown
+    # "leaks" to the host filesystem: files in `data/searxng/` end up owned by the
+    # container's internal UID/GID (typically 977:977), which causes host-side edits
+    # to fail with `Permission denied`.
+    #
+    # Workaround (no custom image required):
+    # - run the container as the host user (1000:1000), so the entrypoint is NOT root
+    #   and therefore cannot perform the root-only chown branch.
+    # - also force-disable ownership changes in case the container is ever started as
+    #   root (e.g. during troubleshooting): `FORCE_OWNERSHIP=false`.
+    # - mount a host directory for `/var/cache/searxng`, because when running as
+    #   1000:1000 the container might not be able to write to the image's internal
+    #   `/var/cache/searxng` path if it is owned by 977:977.
+    #
+    # Nuances:
+    # - this prevents "ownership flipping" going forward; existing files may still
+    #   need a one-time `chown -R 1000:1000 data/searxng data/searxng-cache`.
+    # - if you actually WANT the image to enforce `searxng:searxng` ownership inside
+    #   the container, remove `user:` and `FORCE_OWNERSHIP=false` and accept 977:977
+    #   ownership on the host, or switch to a custom image that aligns UID/GID.
+    #
+    # About the "UNKNOWN:UNKNOWN" warnings you may see on startup:
+    # - the upstream entrypoint prints ownership as %U:%G using `stat`.
+    # - when we set `user: "1000:1000"`, the process runs under numeric UID/GID 1000,
+    #   but the container's `/etc/passwd` and `/etc/group` often don't contain a
+    #   *named* user/group for 1000. In that case `stat -c %U:%G` cannot resolve the
+    #   names and prints `UNKNOWN:UNKNOWN`, triggering a warning.
+    # - this is typically harmless (writes still work and ownership on the host stays
+    #   consistent), it is only a name-resolution problem inside the container.
+    #
+    # If you ever want to remove these warnings in the future, "where to dig":
+    # - add a passwd/group entry for UID/GID 1000 inside the container (custom image
+    #   or entrypoint wrapper) so name lookup succeeds; or
+    # - mount a read-only generated passwd/group file and use nsswitch-compatible
+    #   mechanisms (e.g. nss_wrapper) so UID 1000 maps to a name; or
+    # - rebuild a custom image where the internal `searxng` user is actually UID/GID
+    #   1000 (requires tooling inside the base image to modify accounts).
+    user: "1000:1000"
+    environment:
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL}
+      - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY}
+      - FORCE_OWNERSHIP=false
+    volumes:
+      - ./data/searxng:/etc/searxng:rw
+      - ./data/searxng-cache:/var/cache/searxng:rw
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:${OPEN_WEBUI_VERSION}
+    container_name: ai-open-webui
+    depends_on:
+      - ollama
+      - searxng
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:${OLLAMA_PORT_CONTAINER}
+      - HF_TOKEN=${OLLAMA_HF_TOKEN}
+      - WEBUI_AUTH=False
+      - OFFLINE_MODE=true
+      - HF_HUB_OFFLINE=1
+      - RAG_EMBEDDING_MODEL_AUTO_UPDATE=false
+      - RAG_RERANKING_MODEL_AUTO_UPDATE=false
+      - WHISPER_MODEL_AUTO_UPDATE=false
+    volumes:
+      - ./data/open-webui:/app/backend/data:rw

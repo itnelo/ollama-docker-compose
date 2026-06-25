@@ -1,0 +1,4 @@
+# The name in `ollama list` is whatever you passed to `ollama create <name>` (case is preserved).
+# Recommendation for .env/scripts: use lowercase only → `omnicoder-9b-gguf:latest`.
+# Weights source: https://huggingface.co/Tesslate/OmniCoder-9B-GGUF
+FROM hf.co/tesslate/omnicoder-9b-gguf:q4_k_m

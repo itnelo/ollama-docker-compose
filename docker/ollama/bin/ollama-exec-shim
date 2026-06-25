@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+set -eu
+
+# Invoked via symlinks named like `ollama` subcommands (pull, list, run, …).
+# `docker compose exec` does not run the image ENTRYPOINT, so each name is a
+# tiny entry in PATH forwarding to the real CLI.
+_sub="$(basename "$0")"
+case "${_sub}" in
+  ollama-exec-shim)
+    echo "ollama-exec-shim: install as symlinks (e.g. list -> this file), do not run by basename." >&2
+    exit 2
+    ;;
+esac
+exec /bin/ollama "${_sub}" "$@"
